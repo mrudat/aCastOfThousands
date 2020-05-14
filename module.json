@@ -1,0 +1,12 @@
+{
+  "id": "aCastOfThousands",
+  "name": "A Cast of Thousands",
+  "author": "mrudat",
+  "version": "0.0.1",
+  "released": "2020-05-12",
+  "updated": "2020-05-12",
+  "description": "Multiplies generic NPC records.",
+  "requires": [ "unifiedPatchingFramework" ],
+  "moduleLoader": "UPF",
+  "canHotLoad": true
+}
