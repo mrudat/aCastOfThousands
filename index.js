@@ -18,82 +18,6 @@ const {
   Signature
 } = xelib
 
-function csvToArray (text) {
-  let previousCharacter = ''
-  let field = ''
-  let row = [field]
-  const table = []
-  let columnNumber = 0
-  let rowNumber = 0
-  let outsideQuote = true
-  let character
-  for (character of text) {
-    if (character === '"') {
-      if (outsideQuote && character === previousCharacter) {
-        field += character
-      }
-      outsideQuote = !outsideQuote
-    } else if (outsideQuote && character === ',') {
-      row[columnNumber] = field
-      field = ''
-      columnNumber += 1
-      character = ''
-    } else if (outsideQuote && character === '\n') {
-      if (previousCharacter === '\r') {
-        field = field.slice(0, -1)
-      }
-      row[columnNumber] = field
-      table[rowNumber] = row
-      row = []
-      field = ''
-      rowNumber += 1
-      columnNumber = 0
-      character = ''
-    } else {
-      field += character
-    }
-    previousCharacter = character
-  }
-  if (field !== '') {
-    row[columnNumber] = field
-  }
-  if (row.length) {
-    table[rowNumber] = row
-  }
-  return table
-}
-
-function applyHeadings (data, extraHeadings) {
-  const headings = data.shift()
-  const result = []
-  const template = {}
-  for (const heading of headings) {
-    Object.defineProperty(template, heading, {
-      configurable: true,
-      enumerable: true,
-      writable: true
-    })
-  }
-  if (extraHeadings) {
-    for (const heading of extraHeadings) {
-      Object.defineProperty(template, heading, {
-        configurable: true,
-        enumerable: true,
-        writable: true
-      })
-    }
-  }
-  Object.seal(template)
-  for (const row of data) {
-    const obj = Object.create(template)
-    for (let i = 0; i < row.length; i++) {
-      obj[headings[i]] = row[i]
-    }
-    result.push(obj)
-  }
-  return result
-}
-
 function mapGetOrDefault (map, key, func) {
   if (!map.has(key)) {
     map.set(key, func())
@@ -107,10 +31,53 @@ registerPatcher({
   settings: {
     label: 'A Cast of Thousands',
     templateUrl: `${patcherUrl}/partials/settings.html`,
+    controller: function ($scope) {
+      const patcherSettings = $scope.settings.aCastOfThousands
+
+      $scope.lvlnList = patcherSettings.lvlnList
+
+      $scope.min = Math.min
+
+      $scope.removeList = (key) => {
+        delete $scope.lvlnList[key]
+      }
+
+      $scope.addList = () => {
+        $scope.lvlnList.SomeListToMultiply = 20
+      }
+    },
     defaultSettings: {
       patchFileName: 'zPatch.esp',
       seed: 42,
-      lvlnList: 'EditorID,Count\nLCharWorkshopNPC,1360'
+      lvlnList: {
+        DLC03_LCharTrapperFace: 20,
+        DLC03_LCharWorkshopNPC: 120,
+        DLC04_LCharRaiderDiscipleFace: 20,
+        DLC04_LCharRaiderOperatorFace: 20,
+        DLC04_LCharRaiderPackFace: 20,
+        DLC04LCharWorkshopRaiderA: 20,
+        DLC04LCharWorkshopRaiderASpokesperson: 20,
+        DLC04LCharWorkshopRaiderB: 20,
+        DLC04LCharWorkshopRaiderBSpokesperson: 20,
+        DLC04LCharWorkshopRaiderC: 20,
+        DLC04LCharWorkshopRaiderCSpokesperson: 20,
+        kgSIM_Civilians_Commonwealth: 80,
+        kgSIM_Civilians_FarHarbor: 40,
+        kgSIM_DefaultGenericVisitorForms: 80,
+        kgSIM_LChar_IndRev_IronMineWorkerNPC: 20,
+        kgSIM_LCharEnslavedSettler: 20,
+        LCharBosTraitsSoldier: 20,
+        LCharChildrenofAtomFaces: 20,
+        LCharGunnerFaceAndGender: 20,
+        LCharMinutemenFaces: 20,
+        LCharRaiderFaceAndGender: 20,
+        LCharRRAgentFace: 20,
+        LCharTriggermanHumanFaces: 20,
+        LCharWorkshopGuard: 20,
+        LCharWorkshopNPC: 1280,
+        simvault_Minutefans: 20,
+        tkz_LCharBOSFaceAndGender: 20
+      }
     }
   },
   execute: (patchFile, helpers, settings, locals) => ({
@@ -161,8 +128,7 @@ registerPatcher({
         entries.add(data)
       }
 
-      for (const i of applyHeadings(csvToArray(settings.lvlnList), ['EditorID', 'Count'])) {
-        const edid = i.EditorID
+      for (const [edid, count] of settings.lvlnList) {
         const lvlnData = lvlns.get(edid)
         if (!lvlnData) {
           logMessage(`[WARN] Couldn't find a LVLN named ${edid}`)
@@ -171,7 +137,7 @@ registerPatcher({
         lvlns.delete(edid) // so we don't process this again below.
         const lvln = lvlnData.lvln
         const longName = lvlnData.longName = LongName(lvln)
-        lvlnData.targetCount = i.Count
+        lvlnData.targetCount = count
         logMessage(`Collecting the NPCs in ${longName}`)
         const npcSet = new Set()
         const npcTemplateSet = new Set()
@@ -179,10 +145,6 @@ registerPatcher({
           let npc = GetLinksTo(entry, 'LVLO - Base Data\\Reference')
           npc = GetWinningOverride(npc)
           const npcEDID = EditorID(npc)
-          if (!HasElement(npc, 'TPLT')) {
-            npcTemplateSet.add(npcEDID)
-            continue
-          }
           const npcData = mapGetOrDefault(npcs, npcEDID, function () {
             npc = GetWinningOverride(npc)
             return {
@@ -221,7 +183,11 @@ registerPatcher({
           npcData.lvlns.add(lvlnData)
           recordEntry(entry, lvlnData, npcData)
         }
-        if (found) lvlnsToModify.set(lvlnEDID, lvlnData)
+        if (found) {
+          const longName = lvlnData.longName = LongName(lvln)
+          logMessage(`Found ${longName} which includes NPCs we are duplicating`)
+          lvlnsToModify.set(lvlnEDID, lvlnData)
+        }
       }
 
       const flstsToProcess = locals.flstsToProcess = new Map()
@@ -255,8 +221,6 @@ registerPatcher({
         }
         flstsToProcess.set(edid, flstData)
       }
-
-      // TODO anything else that an NPC_ could be referenced by we should duplicate?
     },
     process: [
       {
@@ -269,12 +233,17 @@ registerPatcher({
         },
         patch: function (lvln, helpers, settings, locals) {
           const { logMessage, copyToPatch, cacheRecord } = helpers
-          logMessage(`Duplicating the NPCs in ${LongName(lvln)}`)
           const lvlnEDID = EditorID(lvln)
           const lvlnData = locals.lvlnsToMultiply.get(lvlnEDID)
-          const { npcs, targetCount } = lvlnData
+          const { npcs, targetCount, longName } = lvlnData
           let { count } = lvlnData
 
+          logMessage(`Duplicating the NPCs in ${longName} ${targetCount - count} times`)
+
+          const now = Date.now
+
+          let progressTime = now() + 2000
+          let createdCount = 0
           let leastClones = 0
           let nextleastClones = npcs.values().next().value.clones.size
           while (count < targetCount) {
@@ -284,7 +253,6 @@ registerPatcher({
                 const newEDID = `${npcEDID}_acot${cloneCount}`
                 const newNPC = cacheRecord(copyToPatch(npc, true), newEDID)
                 clones.add(newNPC)
-                logMessage(`Creating ${LongName(newNPC)}`)
 
                 for (const lvln of lvlns) {
                   lvln.count = lvln.count + 1
@@ -294,6 +262,11 @@ registerPatcher({
                   flst.newNpcs.add(newNPC)
                 }
 
+                createdCount = createdCount + 1
+                if (now() > progressTime) {
+                  logMessage(`Created ${createdCount} new NPC_s...`)
+                  progressTime = now() + 2000
+                }
                 cloneCount = cloneCount + 1
                 count = count + 1
                 if (count >= targetCount) break
@@ -317,9 +290,9 @@ registerPatcher({
         },
         patch: function (lvln, helpers, settings, locals) {
           const { logMessage } = helpers
-          logMessage(`Adding new NPC_s to ${LongName(lvln)}`)
           const lvlnEDID = EditorID(lvln)
-          const { llentry } = locals.lvlnsToModify.get(lvlnEDID)
+          const { llentry, longName } = locals.lvlnsToModify.get(lvlnEDID)
+          logMessage(`Adding new NPC_s to ${longName}`)
           const entrylist = GetElement(lvln, 'Leveled List Entries')
           for (const { newNpcs, entries } of llentry.values()) {
             for (const entry of entries) {

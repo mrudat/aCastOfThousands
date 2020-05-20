@@ -17,24 +17,20 @@
 
   <div>
     <span class="input-label" title="A list of Leveled NPCs to create duplicates for and the number of duplicates to create">Leveled NPCs</span>
-    <textarea ng-model="settings.aCastOfThousands.lvlnList"></textarea>
-  </div>
-
-  <div>
-    <span class="input-label" title="Names to apply to the NPCs and a relative frequency that the each name should be used">Names</span>
-    <div>
-      <span class="input-label" title="Given names for male NPCs">Male Names</span>
-      <textarea ng-model="settings.aCastOfThousands.maleNames"></textarea>
-    </div>
-
-    <div>
-      <span class="input-label" title="Given names for female NPCs">Female Names</span>
-      <textarea ng-model="settings.aCastOfThousands.femaleNames"></textarea>
-    </div>
-
-    <div>
-      <span class="input-label" title="Family names for NPCs">Family Names</span>
-      <textarea ng-model="settings.aCastOfThousands.familyNames"></textarea>
-    </div>
+    <button class="action-btn small positive" ng-click="addList()">Add</button>
+    <table>
+      <thead>
+        <th>LVLN/FLST EditorID</th>
+        <th>Count</th>
+        <th></th>
+      </thead>
+      <tbody>
+        <tr ng-repeat="(listName, count) in lvlnList">
+          <td><input type="text" ng-model="listName" size="{{min(listName.length,70)}}" style="width: 100%"/></td>
+          <td><input type="number" ng-model="count" style="width: 5em" min="1"/></td>
+          <td class="remove-item" ng-click="removeList(listName)" title="Remove"></td>
+        </tr>
+      </tbody>
+    </table>
   </div>
 </section>
