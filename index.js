@@ -71,8 +71,9 @@ registerPatcher({
       patchFileName: 'zPatch.esp',
       seed: 42,
       lvlnList: {
+        DLC06LCharWorkshopNPC: 20,
         DLC03_LCharTrapperFace: 20,
-        DLC03_LCharWorkshopNPC: 120,
+        DLC03LCharWorkshopNPC: 120,
         DLC04_LCharRaiderDiscipleFace: 20,
         DLC04_LCharRaiderOperatorFace: 20,
         DLC04_LCharRaiderPackFace: 20,
