@@ -46,6 +46,61 @@ function mapGetOrDefault (map, key, func) {
   return map.get(key)
 }
 
+function sortObjectByKey (object) {
+  Object.keys(object).sort().forEach((key) => {
+    const temp = object[key]
+    delete object[key]
+    object[key] = temp
+  })
+}
+
+function multiplyNPCs (data, helpers, locals) {
+  const { logMessage, copyToPatch, cacheRecord } = helpers
+  const { npcs, targetCount, longName } = data
+  const { newNPCs } = locals
+
+  let { count } = data
+
+  logMessage(`Creating ${targetCount - count} new NPCs for ${longName}`)
+
+  let progressTime = now() + 2000
+  let leastClones = 0
+  let nextleastClones = npcs.values().next().value.clones.size
+  while (count < targetCount) {
+    for (const { npc, npcEDID, lvlns, clones, flsts } of npcs) {
+      let cloneCount = clones.size
+      if (cloneCount === leastClones) {
+        const newEDID = `${npcEDID}_acot${cloneCount}`
+        const newNPC = cacheRecord(copyToPatch(npc, true), newEDID)
+        clones.add(newNPC)
+
+        for (const lvln of lvlns) {
+          lvln.count++
+          lvln.llentry.get(npcEDID).newNpcs.add(newNPC)
+        }
+        for (const flst of flsts) {
+          flst.count++
+          flst.newNpcs.add(newNPC)
+        }
+        newNPCs.push(newNPC)
+
+        if (now() > progressTime) {
+          logMessage(`Created a total of ${newNPCs.length} new NPC_s...`)
+          progressTime = now() + 2000
+        }
+        cloneCount++
+        count++
+        if (count >= targetCount) break
+      }
+      if (cloneCount < nextleastClones) {
+        nextleastClones = cloneCount
+      }
+    }
+    leastClones = nextleastClones
+    nextleastClones = nextleastClones + 1
+  }
+}
+
 registerPatcher({
   info: info,
   gameModes: [xelib.gmFO4],
@@ -55,16 +110,16 @@ registerPatcher({
     controller: function ($scope) {
       const patcherSettings = $scope.settings.aCastOfThousands
 
-      $scope.lvlnList = patcherSettings.lvlnList
-
-      $scope.min = Math.min
+      const lvlnList = $scope.lvlnList = patcherSettings.lvlnList
+      sortObjectByKey(lvlnList)
 
       $scope.removeList = (key) => {
-        delete $scope.lvlnList[key]
+        delete lvlnList[key]
       }
 
       $scope.addList = () => {
-        $scope.lvlnList.SomeListToMultiply = 20
+        lvlnList['#AListToMultiply'] = 20
+        sortObjectByKey(lvlnList)
       }
     },
     defaultSettings: {
@@ -242,7 +297,7 @@ registerPatcher({
         }
       }
 
-      logMessage('Finding other LVLNs that reference the NPCs we will duplicate')
+      logMessage('Finding other LVLNs that include the NPCs we will duplicate')
       for (const [lvlnEDID, lvlnData] of lvlns) {
         const lvln = lvlnData.lvln
         let found = false
@@ -263,7 +318,7 @@ registerPatcher({
         lvlnsToModify.set(lvlnEDID, lvlnData)
       }
 
-      logMessage('Finding FLSTs that reference the NPCs we will duplicate')
+      logMessage('Finding other FLSTs that include the NPCs we will duplicate')
       for (const [flstEDID, flstData] of flsts) {
         const flst = flstData.flst
         let skip = false
@@ -296,174 +351,49 @@ registerPatcher({
     },
     process: [
       {
-        records: function (filesToPatch, helpers, settings, locals) {
-          const records = []
-          for (const lvlnData of locals.lvlnsToMultiply.values()) {
-            records.push(lvlnData.lvln)
-          }
-          return records
-        },
+        records: (filesToPatch, helpers, settings, locals) => locals.lvlnsToMultiply.values().map(d => d.lvln),
+        patch: (lvln, helpers, settings, locals) => multiplyNPCs(locals.lvlnsToMultiply.get(EditorID(lvln)), helpers, locals)
+      },
+      {
+        records: (filesToPatch, helpers, settings, locals) => locals.flstsToMultiply.values().map(d => d.flst),
+        patch: (flst, helpers, settings, locals) => multiplyNPCs(locals.flstsToMultiply.get(EditorID(flst)), helpers, locals)
+      },
+      {
+        records: (filesToPatch, helpers, settings, locals) => locals.lvlnsToModify.values().map(d => d.lvln),
         patch: function (lvln, helpers, settings, locals) {
-          const { newNPCs } = locals
-          const { logMessage, copyToPatch, cacheRecord } = helpers
-          const lvlnEDID = EditorID(lvln)
-          const lvlnData = locals.lvlnsToMultiply.get(lvlnEDID)
-          const { npcs, targetCount, longName } = lvlnData
-          let { count } = lvlnData
-
-          logMessage(`Duplicating the NPCs in ${longName} ${targetCount - count} times`)
-
-          const now = Date.now
-
-          let progressTime = now() + 2000
-          let createdCount = 0
-          let leastClones = 0
-          let nextleastClones = npcs.values().next().value.clones.size
-          while (count < targetCount) {
-            for (const { npc, npcEDID, lvlns, clones, flsts } of npcs) {
-              let cloneCount = clones.size
-              if (cloneCount === leastClones) {
-                const newEDID = `${npcEDID}_acot${cloneCount}`
-                const newNPC = cacheRecord(copyToPatch(npc, true), newEDID)
-                clones.add(newNPC)
-
-                for (const lvln of lvlns) {
-                  lvln.count++
-                  lvln.llentry.get(npcEDID).newNpcs.add(newNPC)
-                }
-                for (const flst of flsts) {
-                  flst.count++
-                  flst.newNpcs.add(newNPC)
-                }
-                newNPCs.push(newNPC)
-
-                createdCount++
-                if (now() > progressTime) {
-                  logMessage(`Created ${createdCount} new NPC_s...`)
-                  progressTime = now() + 2000
-                }
-                cloneCount++
-                count++
-                if (count >= targetCount) break
-              }
-              if (cloneCount < nextleastClones) {
-                nextleastClones = cloneCount
-              }
-            }
-            leastClones = nextleastClones
-            nextleastClones = nextleastClones + 1
-          }
-        }
-      },
-      {
-        records: function (filesToPatch, helpers, settings, locals) {
-          const records = []
-          for (const flstData of locals.flstsToMultiply.values()) {
-            records.push(flstData.flst)
-          }
-          return records
-        },
-        patch: function (flst, helpers, settings, locals) {
-          const { newNPCs } = locals
-          const { logMessage, copyToPatch, cacheRecord } = helpers
-          const flstEDID = EditorID(flst)
-          const flstData = locals.flstsToMultiply.get(flstEDID)
-          const { npcs, targetCount, longName } = flstData
-          let { count } = flstData
-
-          logMessage(`Duplicating the NPCs in ${longName} ${targetCount - count} times`)
-
-          let progressTime = now() + 2000
-          let createdCount = 0
-          let leastClones = 0
-          let nextleastClones = npcs.values().next().value.clones.size
-          while (count < targetCount) {
-            for (const { npc, npcEDID, flsts, clones, lvlns } of npcs) {
-              let cloneCount = clones.size
-              if (cloneCount === leastClones) {
-                const newEDID = `${npcEDID}_acot${cloneCount}`
-                const newNPC = cacheRecord(copyToPatch(npc, true), newEDID)
-                clones.add(newNPC)
-
-                for (const lvln of lvlns) {
-                  lvln.count++
-                  lvln.llentry.get(npcEDID).newNpcs.add(newNPC)
-                }
-                for (const flst of flsts) {
-                  flst.count++
-                  flst.newNpcs.add(newNPC)
-                }
-                newNPCs.push(newNPC)
-
-                createdCount++
-                if (now() > progressTime) {
-                  logMessage(`Created ${createdCount} new NPC_s...`)
-                  progressTime = now() + 2000
-                }
-                cloneCount++
-                count++
-                if (count >= targetCount) break
-              }
-              if (cloneCount < nextleastClones) {
-                nextleastClones = cloneCount
-              }
-            }
-            leastClones = nextleastClones
-            nextleastClones = nextleastClones + 1
-          }
-        }
-      },
-      {
-        records: function (filesToPatch, helpers, settings, locals) {
-          const records = []
-          for (const lvlnData of locals.lvlnsToModify.values()) {
-            records.push(lvlnData.lvln)
-          }
-          return records
-        },
-        patch: function (lvln, helpers, settings, locals) {
-          const { logMessage } = helpers
-          const lvlnEDID = EditorID(lvln)
-          const { llentry, longName } = locals.lvlnsToModify.get(lvlnEDID)
-          logMessage(`Adding new NPC_s to ${longName}`)
-          const entrylist = GetElement(lvln, 'Leveled List Entries')
-          for (const { newNpcs, entries } of llentry.values()) {
-            for (const entry of entries) {
-              const { level, count, chanceNone, owner, condition, globalVariable, requiredRank } = entry
-              for (const npc of newNpcs) {
-                WithHandle(AddElement(entrylist, '.'), (element) => {
-                  WithHandle(AddElement(element, 'LVLO'), (lvlo) => {
-                    SetIntValue(lvlo, 'Level', level)
-                    SetIntValue(lvlo, 'Count', count)
-                    SetLinksTo(lvlo, npc, 'Reference')
-                    SetIntValue(lvlo, 'Chance None', chanceNone)
+          const { llentry, longName } = locals.lvlnsToModify.get(EditorID(lvln))
+          helpers.logMessage(`Adding new NPC_s to ${longName}`)
+          WithHandle(GetElement(lvln, 'Leveled List Entries'), (entrylist) => {
+            for (const { newNpcs, entries } of llentry.values()) {
+              for (const entry of entries) {
+                const { level, count, chanceNone, owner, condition, globalVariable, requiredRank } = entry
+                for (const npc of newNpcs) {
+                  WithHandle(AddElement(entrylist, '.'), (element) => {
+                    WithHandle(AddElement(element, 'LVLO'), (lvlo) => {
+                      SetIntValue(lvlo, 'Level', level)
+                      SetIntValue(lvlo, 'Count', count)
+                      SetLinksTo(lvlo, npc, 'Reference')
+                      SetIntValue(lvlo, 'Chance None', chanceNone)
+                    })
+                    if (!owner) return
+                    WithHandle(AddElement(element, 'COED'), (coed) => {
+                      SetValue(coed, 'Owner', owner)
+                      SetValue(coed, 'Item Condition', condition)
+                      if (globalVariable) SetValue(coed, 'Global Variable', globalVariable)
+                      if (requiredRank) SetValue(coed, 'Required Rank', requiredRank)
+                    })
                   })
-                  if (!owner) return
-                  WithHandle(AddElement(element, 'COED'), (coed) => {
-                    SetValue(coed, 'Owner', owner)
-                    SetValue(coed, 'Item Condition', condition)
-                    if (globalVariable) SetValue(coed, 'Global Variable', globalVariable)
-                    if (requiredRank) SetValue(coed, 'Required Rank', requiredRank)
-                  })
-                })
+                }
               }
             }
-          }
+          })
         }
       },
       {
-        records: function (filesToPatch, helprs, settings, locals) {
-          const records = []
-          for (const flstData of locals.flstsToModify.values()) {
-            records.push(flstData.flst)
-          }
-          return records
-        },
+        records: (filesToPatch, helpers, settings, locals) => locals.flstsToModify.values().map(d => d.lvln),
         patch: function (flst, helpers, settings, locals) {
-          const { logMessage } = helpers
-          logMessage(`Adding new NPC_s to ${LongName(flst)}`)
-          const flstEDID = EditorID(flst)
-          const { newNpcs } = locals.flstsToModify.get(flstEDID)
+          const { newNpcs, longName } = locals.flstsToModify.get(EditorID(flst))
+          helpers.logMessage(`Adding new NPC_s to ${longName}`)
           WithHandle(GetElement(flst, 'FormIDs'), (formIDs) => {
             for (const npc of newNpcs) {
               setLinksTo(formIDs, '.', npc)

@@ -16,18 +16,19 @@
   </div>
 
   <div>
-    <span class="input-label" title="A list of Leveled NPCs to create duplicates for and the number of duplicates to create">Leveled NPCs</span>
-    <button class="action-btn small positive" ng-click="addList()">Add</button>
-    <table>
+    <p>A list of Leveled NPC (LVLN) or Form ID List (FLST) records identified by Editor ID to create duplicates for, and the desired total number of NPCs to have in each list.</p>
+    <table style="text-align: center">
       <thead>
-        <th>LVLN/FLST EditorID</th>
-        <th>Count</th>
-        <th></th>
+        <tr>
+          <th>EditorID</th>
+          <th>Count</th>
+          <th><button class="action-btn small positive" ng-click="addList()">Add</button></th>
+        </tr>
       </thead>
       <tbody>
         <tr ng-repeat="(listName, count) in lvlnList">
-          <td><input type="text" ng-model="listName" size="{{min(listName.length,70)}}" style="width: 100%"/></td>
-          <td><input type="number" ng-model="count" style="width: 5em" min="1"/></td>
+          <td><input type="text" ng-model="listName" style="width: 30em"/></td>
+          <td><input type="number" ng-model="count" style="width: 4em" min="1"/></td>
           <td class="remove-item" ng-click="removeList(listName)" title="Remove"></td>
         </tr>
       </tbody>
