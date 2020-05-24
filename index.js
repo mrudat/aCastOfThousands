@@ -16,21 +16,41 @@ const {
   SetIntValue,
   SetLinksTo,
   SetValue,
-  Signature,
-  WithHandle,
-  WithHandles
+  Signature
 } = xelib
 
 const {
   now
 } = Date
 
-function setLinksTo (element, path, target) {
-  WithHandle(AddElement(element, path), (e) => SetLinksTo(e, target, ''))
+function releaseAll (handles) {
+  for (const handle of handles) Release(handle)
 }
 
-function forEachGetElements (handle, path, fn) {
-  WithHandles(GetElements(handle, path), (handles) => handles.forEach(fn))
+function setLinksTo (parent, path, target) {
+  const element = AddElement(parent, path)
+  try {
+    SetLinksTo(element, target, '')
+  } finally {
+    Release(element)
+  }
+}
+
+function getLinkedEDID (element, path) {
+  const target = GetLinksTo(element, path)
+  try {
+    return EditorID(target)
+  } finally {
+    Release(target)
+  }
+}
+
+function mapMap (map, fn) {
+  const result = []
+  for (const item of map.values()) {
+    result.push(fn(item))
+  }
+  return result
 }
 
 function getWinningOverride (handle) {
@@ -47,11 +67,11 @@ function mapGetOrDefault (map, key, func) {
 }
 
 function sortObjectByKey (object) {
-  Object.keys(object).sort().forEach((key) => {
+  for (const key of Object.keys(object).sort()) {
     const temp = object[key]
     delete object[key]
     object[key] = temp
-  })
+  }
 }
 
 function multiplyNPCs (data, helpers, locals) {
@@ -113,9 +133,7 @@ registerPatcher({
       const lvlnList = $scope.lvlnList = patcherSettings.lvlnList
       sortObjectByKey(lvlnList)
 
-      $scope.removeList = (key) => {
-        delete lvlnList[key]
-      }
+      $scope.removeList = key => delete lvlnList[key]
 
       $scope.addList = () => {
         lvlnList['#AListToMultiply'] = 20
@@ -159,7 +177,7 @@ registerPatcher({
     }
   },
   execute: (patchFile, helpers, settings, locals) => ({
-    initialize: function (patchFile, helpers, settings, locals) {
+    initialize: function initializeACastOfThousands (patchFile, helpers, settings, locals) {
       const { logMessage, loadRecords } = helpers
 
       const lvlns = new Map()
@@ -221,27 +239,32 @@ registerPatcher({
       function recordEntry (entry, lvlnData, npcData) {
         const { llentry } = lvlnData
         const { npcEDID } = npcData
-        const { entries } = mapGetOrDefault(llentry, npcEDID, function () {
-          return {
-            entries: new Set(),
-            newNpcs: new Set()
-          }
-        })
-        WithHandle(GetElement(entry, 'LVLO'), (lvlo) => {
+        const { entries } = mapGetOrDefault(llentry, npcEDID, () => ({
+          entries: new Set(),
+          newNpcs: new Set()
+        }))
+        const lvlo = GetElement(entry, 'LVLO')
+        try {
           const data = {
             level: GetIntValue(lvlo, 'Level'),
             count: GetIntValue(lvlo, 'Count'),
             chanceNone: GetIntValue(lvlo, 'Chance None')
           }
-          WithHandle(GetElement(entry, 'COED'), (coed) => {
-            if (!coed) return
-            data.owner = GetValue(coed, 'Owner')
-            data.condition = GetValue(coed, 'Item Condition')
-            if (HasElement(coed, 'Global Variable')) data.globalVariable = GetValue(coed, 'Global Variable')
-            if (HasElement(coed, 'Required Rank')) data.requiredRank = GetValue(coed, 'Required Rank')
-          })
+          const coed = GetElement(entry, 'COED')
+          if (coed) {
+            try {
+              data.owner = GetValue(coed, 'Owner')
+              data.condition = GetValue(coed, 'Item Condition')
+              if (HasElement(coed, 'Global Variable')) data.globalVariable = GetValue(coed, 'Global Variable')
+              if (HasElement(coed, 'Required Rank')) data.requiredRank = GetValue(coed, 'Required Rank')
+            } finally {
+              Release(coed)
+            }
+          }
           entries.add(data)
-        })
+        } finally {
+          Release(lvlo)
+        }
       }
 
       const lvlnList = settings.lvlnList
@@ -256,12 +279,17 @@ registerPatcher({
           lvlnData.targetCount = count
           logMessage(`Collecting the NPCs in ${longName}`)
           const npcSet = new Set()
-          forEachGetElements(lvln, 'Leveled List Entries', (entry) => {
-            const npcData = recordNPC(GetLinksTo(entry, 'LVLO - Base Data\\Reference'))
-            npcSet.add(npcData)
-            npcData.lvlns.add(lvlnData)
-            recordEntry(entry, lvlnData, npcData)
-          })
+          const entries = GetElements(lvln, 'Leveled List Entries')
+          try {
+            for (const entry of entries) {
+              const npcData = recordNPC(GetLinksTo(entry, 'LVLO - Base Data\\Reference'))
+              npcSet.add(npcData)
+              npcData.lvlns.add(lvlnData)
+              recordEntry(entry, lvlnData, npcData)
+            }
+          } finally {
+            releaseAll(entries)
+          }
           lvlnData.npcs = npcSet
           lvlnData.count = npcSet.size
           if (npcSet.size === 0) {
@@ -278,11 +306,16 @@ registerPatcher({
           flstData.targetCount = count
           logMessage(`Collecting the NPCs in ${longName}`)
           const npcSet = new Set()
-          forEachGetElements(flst, 'FormIDs', (entry) => {
-            const npcData = recordNPC(GetLinksTo(entry, ''))
-            npcSet.add(npcData)
-            npcData.flsts.add(flstData)
-          })
+          const entries = GetElements(flst, 'FormIDs')
+          try {
+            for (const entry of entries) {
+              const npcData = recordNPC(GetLinksTo(entry, ''))
+              npcSet.add(npcData)
+              npcData.flsts.add(flstData)
+            }
+          } finally {
+            releaseAll(entries)
+          }
           flstData.npcs = npcSet
           flstData.count = npcSet.size
           if (npcSet.size === 0) {
@@ -301,14 +334,19 @@ registerPatcher({
       for (const [lvlnEDID, lvlnData] of lvlns) {
         const lvln = lvlnData.lvln
         let found = false
-        forEachGetElements(lvln, 'Leveled List Entries', (entry) => {
-          const npcEDID = WithHandle(GetLinksTo(entry, 'LVLO - Base Data\\Reference'), EditorID)
-          if (!npcs.has(npcEDID)) return
-          found = true
-          const npcData = npcs.get(npcEDID)
-          npcData.lvlns.add(lvlnData)
-          recordEntry(entry, lvlnData, npcData)
-        })
+        const entries = GetElements(lvln, 'Leveled List Entries')
+        try {
+          for (const entry of entries) {
+            const npcEDID = getLinkedEDID(entry, 'LVLO - Base Data\\Reference')
+            if (!npcs.has(npcEDID)) continue
+            found = true
+            const npcData = npcs.get(npcEDID)
+            npcData.lvlns.add(lvlnData)
+            recordEntry(entry, lvlnData, npcData)
+          }
+        } finally {
+          releaseAll(entries)
+        }
         if (!found) {
           Release(lvln)
           continue
@@ -323,20 +361,25 @@ registerPatcher({
         const flst = flstData.flst
         let skip = false
         const flstNpcs = new Map()
-        WithHandles(GetElements(flst, 'FormIDs'), (formIDs) => {
+        const formIDs = GetElements(flst, 'FormIDs')
+        try {
           for (const formID of formIDs) {
-            WithHandle(GetLinksTo(formID), (npc) => {
+            const npc = GetLinksTo(formID)
+            try {
               if (Signature(npc) !== 'NPC_') {
                 skip = true
-                return
+                break
               }
               const npcEDID = EditorID(npc)
               const npcData = npcs.get(npcEDID)
               if (npcData) flstNpcs.set(npcEDID, npcData)
-            })
-            if (skip) break
+            } finally {
+              Release(npc)
+            }
           }
-        })
+        } finally {
+          releaseAll(formIDs)
+        }
         if (skip || flstNpcs.size === 0) {
           Release(flst)
           continue
@@ -344,6 +387,8 @@ registerPatcher({
         for (const npcData of flstNpcs.values()) {
           npcData.flsts.add(flstData)
         }
+        const longName = flstData.longName = LongName(flst)
+        logMessage(`Found ${longName} which includes NPCs we are duplicating`)
         flstsToModify.set(flstEDID, flstData)
       }
 
@@ -351,60 +396,81 @@ registerPatcher({
     },
     process: [
       {
-        records: (filesToPatch, helpers, settings, locals) => locals.lvlnsToMultiply.values().map(d => d.lvln),
+        records: (filesToPatch, helpers, settings, locals) => mapMap(locals.lvlnsToMultiply, d => d.lvln),
         patch: (lvln, helpers, settings, locals) => multiplyNPCs(locals.lvlnsToMultiply.get(EditorID(lvln)), helpers, locals)
       },
       {
-        records: (filesToPatch, helpers, settings, locals) => locals.flstsToMultiply.values().map(d => d.flst),
+        records: (filesToPatch, helpers, settings, locals) => mapMap(locals.flstsToMultiply, d => d.flst),
         patch: (flst, helpers, settings, locals) => multiplyNPCs(locals.flstsToMultiply.get(EditorID(flst)), helpers, locals)
       },
       {
-        records: (filesToPatch, helpers, settings, locals) => locals.lvlnsToModify.values().map(d => d.lvln),
-        patch: function (lvln, helpers, settings, locals) {
+        records: (filesToPatch, helpers, settings, locals) => mapMap(locals.lvlnsToModify, d => d.lvln),
+        patch: function addNPCstolvln (lvln, helpers, settings, locals) {
           const { llentry, longName } = locals.lvlnsToModify.get(EditorID(lvln))
           helpers.logMessage(`Adding new NPC_s to ${longName}`)
-          WithHandle(GetElement(lvln, 'Leveled List Entries'), (entrylist) => {
+          const entrylist = GetElement(lvln, 'Leveled List Entries')
+          try {
             for (const { newNpcs, entries } of llentry.values()) {
               for (const entry of entries) {
                 const { level, count, chanceNone, owner, condition, globalVariable, requiredRank } = entry
                 for (const npc of newNpcs) {
-                  WithHandle(AddElement(entrylist, '.'), (element) => {
-                    WithHandle(AddElement(element, 'LVLO'), (lvlo) => {
+                  const element = AddElement(entrylist, '.')
+                  try {
+                    const lvlo = AddElement(element, 'LVLO')
+                    try {
                       SetIntValue(lvlo, 'Level', level)
                       SetIntValue(lvlo, 'Count', count)
                       SetLinksTo(lvlo, npc, 'Reference')
                       SetIntValue(lvlo, 'Chance None', chanceNone)
-                    })
-                    if (!owner) return
-                    WithHandle(AddElement(element, 'COED'), (coed) => {
+                    } finally {
+                      Release(lvlo)
+                    }
+                    if (!owner) break
+                    const coed = AddElement(element, 'COED')
+                    try {
                       SetValue(coed, 'Owner', owner)
                       SetValue(coed, 'Item Condition', condition)
                       if (globalVariable) SetValue(coed, 'Global Variable', globalVariable)
                       if (requiredRank) SetValue(coed, 'Required Rank', requiredRank)
-                    })
-                  })
+                    } finally {
+                      Release(coed)
+                    }
+                  } finally {
+                    Release(element)
+                  }
                 }
               }
             }
-          })
+          } finally {
+            Release(entrylist)
+          }
         }
       },
       {
-        records: (filesToPatch, helpers, settings, locals) => locals.flstsToModify.values().map(d => d.lvln),
-        patch: function (flst, helpers, settings, locals) {
+        records: (filesToPatch, helpers, settings, locals) => mapMap(locals.flstsToModify, d => d.flst),
+        patch: function addNPCstoflst (flst, helpers, settings, locals) {
           const { newNpcs, longName } = locals.flstsToModify.get(EditorID(flst))
           helpers.logMessage(`Adding new NPC_s to ${longName}`)
-          WithHandle(GetElement(flst, 'FormIDs'), (formIDs) => {
+          const formIDs = GetElement(flst, 'FormIDs')
+          try {
             for (const npc of newNpcs) {
               setLinksTo(formIDs, '.', npc)
             }
-          })
+          } finally {
+            Release(formIDs)
+          }
         }
       }
     ],
     finalize: function (patchFile, helpers, settings, locals) {
       for (const newNPC of locals.newNPCs) {
         Release(newNPC)
+      }
+      for (const flstData of locals.flstsToModify.values()) {
+        Release(flstData.flst)
+      }
+      for (const lvlnData of locals.lvlnsToModify.values()) {
+        Release(lvlnData.lvln)
       }
     }
   })
